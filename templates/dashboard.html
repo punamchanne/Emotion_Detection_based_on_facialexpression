@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard | MoodMusic</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+
+<body>
+    <header class="dashboard-header">
+        <div class="brand">
+            <h1>Mood<span>Music</span></h1>
+        </div>
+        <div class="user-controls">
+            <span>Welcome, {{ session['user'] }}</span>
+            <a href="{{ url_for('logout') }}" class="btn-logout">Logout</a>
+        </div>
+    </header>
+
+    <main class="dashboard-main">
+        <div class="scanner-container">
+            <div class="section-title">
+                <h2>Scan Your Emotion</h2>
+            </div>
+
+            <div class="video-wrapper">
+                <video id="video" autoplay playsinline></video>
+                <canvas id="canvas" style="display:none;"></canvas>
+                <div class="scan-overlay">
+                    <div class="scan-line"></div>
+                </div>
+            </div>
+
+            <div class="controls-wrapper">
+                <button id="scanBtn" class="btn-primary" style="max-width: 250px;">
+                    <i class="fas fa-camera"></i> Start Analysis
+                </button>
+                <div id="status" class="status-display">Ready to scan</div>
+            </div>
+
+            <div id="emotion-result" class="emotion-display" style="display: none; text-align: center;">
+                <h3 style="font-size: 2rem; margin: 1rem 0;">
+                    Detected Mood: <span id="detected-mood" style="color: var(--secondary-color);">...</span>
+                </h3>
+            </div>
+        </div>
+
+        <div id="recommendations" class="recommendations-wrapper" style="display: none;">
+            <div class="section-title">
+                <h2>Recommended Tracks</h2>
+            </div>
+
+            <!-- Hidden Audio Player -->
+            <div class="audio-player-container" style="text-align: center; margin-bottom: 2rem;">
+                <audio id="audioPlayer" controls style="width: 100%; max-width: 500px; display: none;"></audio>
+                <div id="now-playing" style="color: var(--secondary-color); margin-top: 0.5rem; display: none;">
+                    Now Playing: <span id="current-track-name"></span>
+                </div>
+            </div>
+
+            <div class="songs-grid" id="song-grid">
+                <!-- Songs will be injected here -->
+            </div>
+        </div>
+    </main>
+
+    <!-- Load face-api.js from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+
+</html>
