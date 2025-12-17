@@ -265,11 +265,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 👨‍💻 Author
-
-**Road2Tech**
-- GitHub: [@road2tec](https://github.com/road2tec)
-
 ## 🙏 Acknowledgments
 
 - [face-api.js](https://github.com/justadudewhohacks/face-api.js) - For facial emotion detection
@@ -278,15 +273,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) - Database hosting
 - [Vite](https://vitejs.dev/) - Build tool
 
-## 📞 Support
-
-If you encounter any issues or have questions:
-1. Check the [Troubleshooting](#-troubleshooting) section
-2. Open an issue on GitHub
-3. Contact the maintainer
-
 ---
 
 **⭐ If you found this project helpful, please consider giving it a star!**
 
-Made with ❤️ by Road2Tech
+
