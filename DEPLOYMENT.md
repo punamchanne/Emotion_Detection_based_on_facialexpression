@@ -21,6 +21,9 @@ This project is split into two parts:
     -   Value: `your_mongodb_connection_string` (Copy from your local `.env`)
     -   Key: `TF_ENABLE_ONEDNN_OPTS`
     -   Value: `0`
+    -   Key: `PYTHON_VERSION`
+    -   Value: `3.11.9`
+    -   **Update Build Command**: `./render-build.sh`
 6.  Click **"Create Web Service"**.
 7.  Wait for deployment. Once live, copy the **Backend URL** (e.g., `https://emotion-backend.onrender.com`).
 
