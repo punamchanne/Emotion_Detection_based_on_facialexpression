@@ -1,4 +1,4 @@
-# 🎵 MoodMelody - Emotion-Based Music Recommendation System
+# - Emotion-Based Music Recommendation System
 
 An intelligent music recommendation system that detects your facial emotions in real-time and plays music that matches your mood. Built with React, Flask, and AI-powered emotion detection.
 
