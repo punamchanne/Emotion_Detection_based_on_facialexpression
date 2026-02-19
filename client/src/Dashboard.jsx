@@ -8,15 +8,14 @@ const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
 const Dashboard = () => {
     const navigate = useNavigate();
     const videoRef = useRef(null);
-    const audioRef = useRef(null);
+
 
     const [user, setUser] = useState(null);
     const [status, setStatus] = useState('Initializing...');
     const [isScanning, setIsScanning] = useState(false);
     const [modelsLoaded, setModelsLoaded] = useState(false);
     const [emotionResult, setEmotionResult] = useState(null);
-    const [songs, setSongs] = useState([]);
-    const [currentTrack, setCurrentTrack] = useState(null);
+
     const [cameraReady, setCameraReady] = useState(false);
 
     useEffect(() => {
@@ -75,12 +74,7 @@ const Dashboard = () => {
         setIsScanning(true);
         setStatus("Snapshotting...");
         setEmotionResult(null);
-        setSongs([]);
 
-        if (audioRef.current) {
-            audioRef.current.pause();
-            setCurrentTrack(null);
-        }
 
         await new Promise(r => setTimeout(r, 500));
 
@@ -136,52 +130,14 @@ const Dashboard = () => {
     };
 
     const finishScanning = async (emotion) => {
-        setStatus(`Detected: ${emotion}. Fetching songs...`);
+        setStatus(`Detected: ${emotion}.`);
         setEmotionResult(emotion);
-
-        try {
-            const res = await api.post('/recommend', { emotions: [emotion] });
-            if (res.data.songs) {
-                setSongs(res.data.songs);
-                setStatus("Ready to scan again");
-            }
-        } catch (err) {
-            console.error(err);
-            setStatus("Error getting recommendations.");
-        } finally {
-            setIsScanning(false);
-        }
+        setIsScanning(false);
+        // Reset status after a delay to allow re-scanning
+        setTimeout(() => setStatus("Ready to scan again"), 2000);
     };
 
-    useEffect(() => {
-        if (songs.length > 0) {
-            const firstLocal = songs.find(s => s.is_local);
-            if (firstLocal) {
-                const audioUrl = firstLocal.link;
-                if (audioRef.current) {
-                    audioRef.current.src = audioUrl;
-                    audioRef.current.play().catch(e => {
-                        console.warn("Autoplay blocked/failed:", e);
-                        setStatus("Click 'Play Now' to listen.");
-                    });
-                    setCurrentTrack(firstLocal.track);
-                }
-            }
-        }
-    }, [songs]);
 
-    const playSong = (song) => {
-        if (!audioRef.current) return;
-
-        if (song.is_local) {
-            const audioUrl = song.link;
-            audioRef.current.src = audioUrl;
-            audioRef.current.play();
-            setCurrentTrack(song.track);
-        } else {
-            window.open(song.link, '_blank');
-        }
-    };
 
     const handleLogout = async () => {
         await api.get('/logout');
@@ -228,39 +184,7 @@ const Dashboard = () => {
                     )}
                 </div>
 
-                {songs.length > 0 && (
-                    <div className="recommendations-wrapper">
-                        <div className="section-title">
-                            <h2>Recommended Tracks</h2>
-                        </div>
 
-                        <div style={{ textAlign: 'center', marginBottom: '2rem', display: currentTrack ? 'block' : 'none' }}>
-                            <audio ref={audioRef} controls style={{ width: '100%', maxWidth: '500px' }}></audio>
-                            <div style={{ color: 'var(--secondary-color)', marginTop: '0.5rem' }}>
-                                Now Playing: {currentTrack}
-                            </div>
-                        </div>
-
-                        <div className="songs-grid">
-                            {songs.map((song, index) => (
-                                <div
-                                    className="song-card"
-                                    key={index}
-                                    onClick={() => playSong(song)}
-                                >
-                                    <div>
-                                        <div className="song-title">{song.track}</div>
-                                        <div className="song-artist">{song.artist}</div>
-                                    </div>
-                                    <div className="listen-link">
-                                        <i className="fas fa-play-circle"></i>
-                                        {song.is_local ? 'Play Now' : 'Listen on YouTube'}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
             </main>
         </div>
     );
