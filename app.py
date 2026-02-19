@@ -22,6 +22,8 @@ CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
 
 app.secret_key = os.getenv('SECRET_KEY', 'supersecretkey')
 app.config['MONGO_URI'] = os.getenv('MONGO_URI')
+app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+app.config['SESSION_COOKIE_SECURE'] = True
 
 # --- Database Setup ---
 users_collection = None
