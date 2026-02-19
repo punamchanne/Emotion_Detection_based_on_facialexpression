@@ -18,14 +18,7 @@ load_dotenv()
 # --- Configuration ---
 app = Flask(__name__)
 # Enable CORS for React dev server
-CORS(app, supports_credentials=True, resources={r"/*": {"origins": [
-    "http://localhost:5173", 
-    "http://127.0.0.1:5173", 
-    "http://localhost:5174", 
-    "http://127.0.0.1:5174",
-    "http://localhost:5175", 
-    "http://127.0.0.1:5175"
-]}})
+CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
 
 app.secret_key = os.getenv('SECRET_KEY', 'supersecretkey')
 app.config['MONGO_URI'] = os.getenv('MONGO_URI')
