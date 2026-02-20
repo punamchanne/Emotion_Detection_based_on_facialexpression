@@ -68,74 +68,45 @@ const Dashboard = () => {
         }
     };
 
+    useEffect(() => {
+        let intervalId;
+        if (cameraReady && modelsLoaded && !isScanning) {
+            intervalId = setInterval(() => {
+                handleScan();
+            }, 2000); // Scan every 2 seconds
+        }
+        return () => clearInterval(intervalId);
+    }, [cameraReady, modelsLoaded]); // Start loop when camera is ready
+
     const handleScan = async () => {
-        if (!modelsLoaded || isScanning || !cameraReady) return;
+        if (!modelsLoaded || !cameraReady) return;
 
         setIsScanning(true);
-        setStatus("Snapshotting...");
-        setEmotionResult(null);
-
-
-        await new Promise(r => setTimeout(r, 500));
+        // setStatus("Scanning..."); 
 
         try {
-            const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.2 });
-            const detections = await faceapi.detectSingleFace(videoRef.current, options).withFaceExpressions();
+            const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.3 });
+            // Just detect face, no need for expressions if we only want presence
+            const detections = await faceapi.detectSingleFace(videoRef.current, options);
 
             if (detections) {
-                const expressions = detections.expressions;
-                console.log("Detected Expressions:", expressions);
-
-                // Anti-neutral bias: find the strongest non-neutral emotion
-                let dominantExpression = 'neutral';
-                let maxNonNeutralScore = 0;
-
-                // Check all non-neutral emotions first
-                const emotionPriority = ['happy', 'sad', 'angry', 'surprised', 'fearful', 'disgusted'];
-
-                for (const emotion of emotionPriority) {
-                    const score = expressions[emotion] || 0;
-                    if (score > maxNonNeutralScore) {
-                        maxNonNeutralScore = score;
-                        dominantExpression = emotion;
-                    }
-                }
-
-                // Only use neutral if it's VERY dominant (>0.85) AND no other emotion is significant (>0.15)
-                if (expressions.neutral > 0.85 && maxNonNeutralScore < 0.15) {
-                    dominantExpression = 'neutral';
-                }
-
-                // Extra boost for clear emotions (lower threshold)
-                if (expressions.happy > 0.25) dominantExpression = 'happy';
-                if (expressions.sad > 0.25) dominantExpression = 'sad';
-                if (expressions.angry > 0.25) dominantExpression = 'angry';
-                if (expressions.surprised > 0.25) dominantExpression = 'surprised';
-                if (expressions.fearful > 0.25) dominantExpression = 'fearful';
-                if (expressions.disgusted > 0.25) dominantExpression = 'disgusted';
-
-                console.log(`Selected emotion: ${dominantExpression} (neutral: ${expressions.neutral}, max non-neutral: ${maxNonNeutralScore})`);
-
-                const formattedEmotion = dominantExpression.charAt(0).toUpperCase() + dominantExpression.slice(1);
-                finishScanning(formattedEmotion);
+                // Face found
+                setEmotionResult("Present");
+                setStatus("Status: Person Detected");
             } else {
-                setStatus("No face detected. Try moving closer.");
-                setIsScanning(false);
+                // No face found
+                setEmotionResult("Unknown");
+                setStatus("Status: No Person Detected");
             }
         } catch (err) {
             console.error(err);
-            setStatus("Detection error. Try again.");
+            setStatus("Detection error.");
+        } finally {
             setIsScanning(false);
         }
     };
 
-    const finishScanning = async (emotion) => {
-        setStatus(`Detected: ${emotion}.`);
-        setEmotionResult(emotion);
-        setIsScanning(false);
-        // Reset status after a delay to allow re-scanning
-        setTimeout(() => setStatus("Ready to scan again"), 2000);
-    };
+    // Removed finishScanning as it's no longer needed for manual flow
 
 
 
@@ -166,20 +137,14 @@ const Dashboard = () => {
                     </div>
 
                     <div className="controls-wrapper">
-                        <button
-                            className="btn-primary"
-                            style={{ width: '200px' }}
-                            onClick={handleScan}
-                            disabled={!cameraReady || isScanning}
-                        >
-                            {isScanning ? 'Scanning...' : 'Start Analysis'}
-                        </button>
-                        <div className="status-display">{status}</div>
+                        <div className="status-display" style={{ marginTop: '1rem', fontSize: '1.2rem' }}>
+                            {status}
+                        </div>
                     </div>
 
                     {emotionResult && (
-                        <div style={{ marginTop: '1rem', fontSize: '1.5rem', color: 'var(--primary-color)' }}>
-                            Detected Mood: <strong>{emotionResult}</strong>
+                        <div style={{ marginTop: '1rem', fontSize: '1.5rem', color: emotionResult === 'Present' ? 'green' : 'red' }}>
+                            <strong>{emotionResult === 'Present' ? 'Person Detected' : 'No Person Detected'}</strong>
                         </div>
                     )}
                 </div>
