@@ -1,12 +1,8 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, session, flash
+from flask import Flask, request, jsonify, session
 from flask_bcrypt import Bcrypt
 from pymongo import MongoClient
-import numpy as np
-import cv2
-import pandas as pd
 import base64
 import os
-from collections import Counter
 import traceback
 
 from flask_cors import CORS
@@ -47,51 +43,6 @@ try:
     print("Connected to MongoDB")
 except Exception as e:
     print(f"Error connecting to MongoDB: {e}")
-    # keep users_collection as None; routes handle it
-
-# --- ML Model Setup ---
-model = None
-try:
-    from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D
-
-    def load_model():
-        m = Sequential()
-        m.add(Conv2D(32, kernel_size=(3, 3), activation='relu', input_shape=(48, 48, 1)))
-        m.add(Conv2D(64, kernel_size=(3, 3), activation='relu'))
-        m.add(MaxPooling2D(pool_size=(2, 2)))
-        m.add(Conv2D(128, kernel_size=(3, 3), activation='relu'))
-        m.add(MaxPooling2D(pool_size=(2, 2)))
-        m.add(Conv2D(128, kernel_size=(3, 3), activation='relu'))
-        m.add(MaxPooling2D(pool_size=(2, 2)))
-        m.add(Dropout(0.25))
-        m.add(Flatten())
-        m.add(Dense(1024, activation='relu'))
-        m.add(Dropout(0.5))
-        m.add(Dense(7, activation='softmax'))
-        m.load_weights('model.h5')
-        return m
-
-    model = load_model()
-    print("Model loaded successfully")
-except Exception as e:
-    print(f"WARNING: Could not load TensorFlow model: {e}")
-    print("Running in DEMO mode with mock predictions.")
-
-emotion_dict = {
-    0: "Angry",
-    1: "Disgusted",
-    2: "Fearful",
-    3: "Happy",
-    4: "Neutral",
-    5: "Sad",
-    6: "Surprised",
-}
-
-def load_haarcascade():
-    return cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
-
-face_cascade = load_haarcascade()
 
 # --- Coffee Recommendations (Enhanced) ---
 COFFEE_RECOMMENDATIONS = {
@@ -213,49 +164,6 @@ def register():
 def logout():
     session.pop('user', None)
     return jsonify({'success': True})
-
-@app.route('/predict', methods=['POST'])
-def predict():
-    """
-    Optional: This is kept if you later want server-side prediction.
-    Currently your React Dashboard uses face-api.js expressions, not this route.
-    """
-    if 'user' not in session:
-        return jsonify({'error': 'Unauthorized'}), 401
-
-    try:
-        data = (request.json or {}).get('image')
-        if not data:
-            return jsonify({'emotion': 'Neutral'})
-
-        header, encoded = data.split(",", 1)
-        nparr = np.frombuffer(base64.b64decode(encoded), np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-        emotion = "Neutral"
-
-        if model:
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
-            emotion = "Neutral"
-            for (x, y, w, h) in faces:
-                roi_gray = gray[y:y + h, x:x + w]
-                cropped_img = np.expand_dims(np.expand_dims(cv2.resize(roi_gray, (48, 48)), -1), 0)
-                prediction = model.predict(cropped_img, verbose=0)
-                max_index = int(np.argmax(prediction))
-                emotion = emotion_dict[max_index]
-                break
-        else:
-            import random
-            emotions_pool = ["Happy", "Sad", "Angry", "Surprised", "Fearful", "Disgusted", "Neutral"]
-            emotion = random.choice(emotions_pool)
-
-        return jsonify({'emotion': emotion})
-
-    except Exception as e:
-        print(f"Prediction error: {e}")
-        return jsonify({'emotion': 'Neutral'})
 
 @app.route('/coffee', methods=['POST'])
 def coffee():
