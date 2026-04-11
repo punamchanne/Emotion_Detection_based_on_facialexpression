@@ -26,6 +26,8 @@ wheels/
 *.egg
 .venv/
 venv/
+.venv_z/
+venv_z/
 ENV/
 
 # IDEs

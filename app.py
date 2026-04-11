@@ -17,13 +17,25 @@ load_dotenv()
 
 # --- Configuration ---
 app = Flask(__name__)
-# Enable CORS for React dev server
-CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
+
+# IMPORTANT: Allow React dev server (5173) with cookies/sessions
+CORS(
+    app,
+    supports_credentials=True,
+    resources={r"/*": {"origins": ["http://localhost:5173", "http://localhost:5174", "http://localhost:5175"]}},
+)
 
 app.secret_key = os.getenv('SECRET_KEY', 'supersecretkey')
 app.config['MONGO_URI'] = os.getenv('MONGO_URI')
-app.config['SESSION_COOKIE_SAMESITE'] = 'None'
-app.config['SESSION_COOKIE_SECURE'] = True
+
+# IMPORTANT: Local dev uses HTTP, so cookies must NOT be Secure
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = False
+
+# Optional (safe defaults)
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+
+bcrypt = Bcrypt(app)
 
 # --- Database Setup ---
 users_collection = None
@@ -31,125 +43,94 @@ try:
     client = MongoClient(app.config['MONGO_URI'], serverSelectionTimeoutMS=5000)
     db = client.get_database('emotion_music_db')
     users_collection = db.users
-    # Trigger a connection check
     client.server_info()
     print("Connected to MongoDB")
 except Exception as e:
     print(f"Error connecting to MongoDB: {e}")
-    # Fallback for dev/demo if DB fails? 
-    # For now, we leave users_collection as None and handle it in routes
-
-
-bcrypt = Bcrypt(app)
+    # keep users_collection as None; routes handle it
 
 # --- ML Model Setup ---
 model = None
 try:
     from tensorflow.keras.models import Sequential
     from tensorflow.keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D
-    
+
     def load_model():
-        model = Sequential()
-        model.add(Conv2D(32, kernel_size=(3, 3), activation='relu', input_shape=(48, 48, 1)))
-        model.add(Conv2D(64, kernel_size=(3, 3), activation='relu'))
-        model.add(MaxPooling2D(pool_size=(2, 2)))
-        model.add(Conv2D(128, kernel_size=(3, 3), activation='relu'))
-        model.add(MaxPooling2D(pool_size=(2, 2)))
-        model.add(Conv2D(128, kernel_size=(3, 3), activation='relu'))
-        model.add(MaxPooling2D(pool_size=(2, 2)))
-        model.add(Dropout(0.25))
-        model.add(Flatten())
-        model.add(Dense(1024, activation='relu'))
-        model.add(Dropout(0.5))
-        model.add(Dense(7, activation='softmax'))
-        model.load_weights('model.h5')
-        return model
-        
+        m = Sequential()
+        m.add(Conv2D(32, kernel_size=(3, 3), activation='relu', input_shape=(48, 48, 1)))
+        m.add(Conv2D(64, kernel_size=(3, 3), activation='relu'))
+        m.add(MaxPooling2D(pool_size=(2, 2)))
+        m.add(Conv2D(128, kernel_size=(3, 3), activation='relu'))
+        m.add(MaxPooling2D(pool_size=(2, 2)))
+        m.add(Conv2D(128, kernel_size=(3, 3), activation='relu'))
+        m.add(MaxPooling2D(pool_size=(2, 2)))
+        m.add(Dropout(0.25))
+        m.add(Flatten())
+        m.add(Dense(1024, activation='relu'))
+        m.add(Dropout(0.5))
+        m.add(Dense(7, activation='softmax'))
+        m.load_weights('model.h5')
+        return m
+
     model = load_model()
     print("Model loaded successfully")
 except Exception as e:
     print(f"WARNING: Could not load TensorFlow model: {e}")
     print("Running in DEMO mode with mock predictions.")
 
-emotion_dict = {0: "Angry", 1: "Disgusted", 2: "Fearful", 3: "Happy", 4: "Neutral", 5: "Sad", 6: "Surprised"}
+emotion_dict = {
+    0: "Angry",
+    1: "Disgusted",
+    2: "Fearful",
+    3: "Happy",
+    4: "Neutral",
+    5: "Sad",
+    6: "Surprised",
+}
 
 def load_haarcascade():
-    face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
-    return face_cascade
+    return cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 
 face_cascade = load_haarcascade()
 
-# --- FIXED PLAYLISTS (7 Songs per Emotion) ---
-# Hardcoded to ensure no overlap and high quality
-FIXED_PLAYLISTS = {
-    "Angry": [
-        {"name": "Numb", "artist": "Linkin Park", "link": "https://youtu.be/kXYiU_JCYtU", "track": "Numb"},
-        {"name": "Break Stuff", "artist": "Limp Bizkit", "link": "https://youtu.be/ZpUYjpKg9KY", "track": "Break Stuff"},
-        {"name": "Killing In The Name", "artist": "Rage Against The Machine", "link": "https://youtu.be/bWXazVhlyxQ", "track": "Killing In The Name"},
-        {"name": "Chop Suey!", "artist": "System Of A Down", "link": "https://youtu.be/CSvFpBOe8eY", "track": "Chop Suey!"},
-        {"name": "Du Hast", "artist": "Rammstein", "link": "https://youtu.be/W3q8Od5qJio", "track": "Du Hast"},
-        {"name": "Bodies", "artist": "Drowning Pool", "link": "https://youtu.be/04F4xlWSFh0", "track": "Bodies"},
-        {"name": "Master of Puppets", "artist": "Metallica", "link": "https://youtu.be/xnKhsTXoKCI", "track": "Master of Puppets"}
-    ],
-    "Disgusted": [
-        {"name": "Ugly", "artist": "The Exies", "link": "https://youtu.be/O3M8g8lZgY4", "track": "Ugly"},
-        {"name": "Creep", "artist": "Radiohead", "link": "https://youtu.be/XFkzRNyygfk", "track": "Creep"},
-        {"name": "Bad Guy", "artist": "Billie Eilish", "link": "https://youtu.be/DyDfgMOUjCI", "track": "Bad Guy"},
-        {"name": "Toxic", "artist": "Britney Spears", "link": "https://youtu.be/LOZuxwVk7TU", "track": "Toxic"},
-        {"name": "Sick of It", "artist": "Skillet", "link": "https://youtu.be/A2JGDyX018g", "track": "Sick of It"},
-        {"name": "Hate Me", "artist": "Blue October", "link": "https://youtu.be/dDxgSvJINlU", "track": "Hate Me"},
-        {"name": "Complicated", "artist": "Avril Lavigne", "link": "https://youtu.be/5NPBIwQyPWE", "track": "Complicated"}
-    ],
-    "Fearful": [
-        {"name": "Demons", "artist": "Imagine Dragons", "link": "https://youtu.be/mWRsgZuwf_8", "track": "Demons"},
-        {"name": "Thriller", "artist": "Michael Jackson", "link": "https://youtu.be/sOnqjkJTMaA", "track": "Thriller"},
-        {"name": "Somebody's Watching Me", "artist": "Rockwell", "link": "https://youtu.be/7YvAYIJSSZY", "track": "Somebody's Watching Me"},
-        {"name": "Enter Sandman", "artist": "Metallica", "link": "https://youtu.be/CD-E-LDc384", "track": "Enter Sandman"},
-        {"name": "Disturbia", "artist": "Rihanna", "link": "https://youtu.be/E1mU6h4Xdxc", "track": "Disturbia"},
-        {"name": "In the End", "artist": "Linkin Park", "link": "https://youtu.be/eVTXPUF4Oz4", "track": "In the End"},
-        {"name": "Unthought Known", "artist": "Pearl Jam", "link": "https://youtu.be/T224iY8rYyM", "track": "Unthought Known"}
-    ],
+# --- Coffee Recommendations (Enhanced) ---
+COFFEE_RECOMMENDATIONS = {
     "Happy": [
-        {"name": "Happy", "artist": "Pharrell Williams", "link": "https://youtu.be/ZbZSe6N_BXs", "track": "Happy"},
-        {"name": "Uptown Funk", "artist": "Mark Ronson ft. Bruno Mars", "link": "https://youtu.be/OPf0YbXqDm0", "track": "Uptown Funk"},
-        {"name": "Can't Stop the Feeling!", "artist": "Justin Timberlake", "link": "https://youtu.be/ru0K8uYEZWw", "track": "Can't Stop the Feeling!"},
-        {"name": "Walking on Sunshine", "artist": "Katrina and the Waves", "link": "https://youtu.be/iPUmE-tne5U", "track": "Walking on Sunshine"},
-        {"name": "Shut Up and Dance", "artist": "WALK THE MOON", "link": "https://youtu.be/6JCLY0Rlx6Q", "track": "Shut Up and Dance"},
-        {"name": "I Gotta Feeling", "artist": "The Black Eyed Peas", "link": "https://youtu.be/uSD4vsh1zDA", "track": "I Gotta Feeling"},
-        {"name": "Best Day of My Life", "artist": "American Authors", "link": "https://youtu.be/Y66j_BUCBMY", "track": "Best Day of My Life"}
-    ],
-    "Neutral": [
-        {"name": "Weightless", "artist": "Marconi Union", "link": "https://youtu.be/UfcAVejslrU", "track": "Weightless"},
-        {"name": "Orinoco Flow", "artist": "Enya", "link": "https://youtu.be/LTrk4X9ACTw", "track": "Orinoco Flow"},
-        {"name": "Put Your Records On", "artist": "Corinne Bailey Rae", "link": "https://youtu.be/rjOhZZyn30k", "track": "Put Your Records On"},
-        {"name": "Sunday Morning", "artist": "Maroon 5", "link": "https://youtu.be/S2CTI12XBJA", "track": "Sunday Morning"},
-        {"name": "Banana Pancakes", "artist": "Jack Johnson", "link": "https://youtu.be/6Graa_Vm5eA", "track": "Banana Pancakes"},
-        {"name": "Three Little Birds", "artist": "Bob Marley", "link": "https://youtu.be/LanCLS_hIo4", "track": "Three Little Birds"},
-        {"name": "Upside Down", "artist": "Jack Johnson", "link": "https://youtu.be/dqUdI4AIDF0", "track": "Upside Down"}
+        {"name": "Strong Espresso", "brand": "Starbucks Espresso", "why": "To keep your energy high!"},
+        {"name": "Sweet Caramel Coffee", "brand": "Costa Coffee", "why": "A sweet drink for a sweet mood."},
+        {"name": "Vanilla Latte", "brand": "Blue Tokai", "why": "A classic sweet treat for you."}
     ],
     "Sad": [
-        {"name": "Someone Like You", "artist": "Adele", "link": "https://youtu.be/hLQl3WQQoQ0", "track": "Someone Like You"},
-        {"name": "Fix You", "artist": "Coldplay", "link": "https://youtu.be/k4V3Mo61fJM", "track": "Fix You"},
-        {"name": "Let Her Go", "artist": "Passenger", "link": "https://youtu.be/RBumgq5yVrA", "track": "Let Her Go"},
-        {"name": "The Night We Met", "artist": "Lord Huron", "link": "https://youtu.be/KtlgYxa6BMU", "track": "The Night We Met"},
-        {"name": "All of Me", "artist": "John Legend", "link": "https://youtu.be/450p7goxZqg", "track": "All of Me"},
-        {"name": "Say Something", "artist": "A Great Big World", "link": "https://youtu.be/-2U0Ivkn2Ds", "track": "Say Something"},
-        {"name": "Skinny Love", "artist": "Birdy", "link": "https://youtu.be/aNzCDt2eidg", "track": "Skinny Love"}
+        {"name": "Hot Mocha", "brand": "Starbucks Mocha", "why": "Chocolate and coffee to make you feel better."},
+        {"name": "Creamy Cappuccino", "brand": "Bru Cappuccino", "why": "Warm and soothing for comfort."},
+        {"name": "Hot Chocolate Coffee", "brand": "Homemade Style", "why": "The best drink to feel cozy."}
+    ],
+    "Angry": [
+        {"name": "Iced Americano", "brand": "Starbucks Iced Coffee", "why": "Cool down with a cold drink."},
+        {"name": "Black Coffee", "brand": "Nescafé Gold", "why": "To help you focus and stay calm."},
+        {"name": "Cold Brew", "brand": "Blue Tokai", "why": "Very smooth and refreshing."}
+    ],
+    "Fearful": [
+        {"name": "Decaf Latte", "brand": "Nescafé Decaf", "why": "Very gentle and calming."},
+        {"name": "Warm Milk Coffee", "brand": "Classic Bru", "why": "Light and easy on your nerves."},
+        {"name": "Hazelnut Coffee", "brand": "Artisan Blend", "why": "Smells good and helps you relax."}
+    ],
+    "Disgusted": [
+        {"name": "Fresh Cappuccino", "brand": "Bru Mild", "why": "A light and fresh taste."},
+        {"name": "Ginger Coffee", "brand": "Special Blend", "why": "Strong and fresh smell."},
+        {"name": "Flat White", "brand": "Costa", "why": "Very soft and smooth."}
+    ],
+    "Neutral": [
+        {"name": "Regular Coffee", "brand": "Nescafé Gold", "why": "A perfect drink for any time."},
+        {"name": "Hazelnut Latte", "brand": "Starbucks", "why": "Adding a little flavor to your day."},
+        {"name": "French Press", "brand": "Blue Tokai", "why": "Nice and simple coffee."}
     ],
     "Surprised": [
-        {"name": "Firework", "artist": "Katy Perry", "link": "https://youtu.be/QGJuMBdaqUb", "track": "Firework"},
-        {"name": "Bohemian Rhapsody", "artist": "Queen", "link": "https://youtu.be/fJ9rUzIMcZQ", "track": "Bohemian Rhapsody"},
-        {"name": "Sugar", "artist": "Maroon 5", "link": "https://youtu.be/09R8_2nJtjg", "track": "Sugar"},
-        {"name": "Counting Stars", "artist": "OneRepublic", "link": "https://youtu.be/hT_nvWreIhg", "track": "Counting Stars"},
-        {"name": "Viva La Vida", "artist": "Coldplay", "link": "https://youtu.be/dvgZkm1xWPE", "track": "Viva La Vida"},
-        {"name": "On Top of the World", "artist": "Imagine Dragons", "link": "https://youtu.be/w5tWYmIOWGk", "track": "On Top of the World"},
-        {"name": "Starlight", "artist": "Muse", "link": "https://youtu.be/Pgum6OT_VH8", "track": "Starlight"}
-    ]
+        {"name": "Sparkling Coffee", "brand": "Modern Cafe", "why": "Something new and exciting!"},
+        {"name": "Nitro Cold Brew", "brand": "Starbucks Nitro", "why": "A fun and bubbly drink."},
+        {"name": "Irish Coffee Style", "brand": "Specialty", "why": "A fun twist for a surprise!"}
+    ],
 }
-
-
-
-# ... (Database and Model setup remains same) ...
 
 # --- Routes ---
 
@@ -159,121 +140,105 @@ def check_auth():
         return jsonify({'authenticated': True, 'user': session['user']})
     return jsonify({'authenticated': False}), 401
 
+@app.route('/get-face')
+def get_face():
+    if 'user' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    user_data = users_collection.find_one({'username': session['user']})
+    if user_data and 'face_image' in user_data:
+        return jsonify({'face_image': user_data['face_image']})
+    return jsonify({'face_image': None})
+
 @app.route('/')
 def index():
+    # If someone opens backend in browser, just show auth state (optional)
     if 'user' in session:
-        return redirect(url_for('dashboard'))
-    return redirect(url_for('login'))
+        return jsonify({'ok': True, 'user': session['user']})
+    return jsonify({'ok': True, 'user': None})
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route('/login', methods=['POST'])
 def login():
-    if request.method == 'POST':
-        # Handle JSON (React) and Form (HTML) requests
-        if request.is_json:
-            data = request.json
-            username = data.get('username')
-            password = data.get('password')
-        else:
-            username = request.form['username']
-            password = request.form['password']
-        
-        try:
-            if users_collection is None:
-                raise Exception("Database connection invalid")
-                
-            user = users_collection.find_one({'username': username})
-            
-            if user and bcrypt.check_password_hash(user['password'], password):
-                session['user'] = username
-                if request.is_json:
-                    return jsonify({'success': True, 'user': username})
-                flash('Login successful!', 'success')
-                return redirect(url_for('dashboard'))
-            else:
-                if request.is_json:
-                    return jsonify({'success': False, 'message': 'Invalid username or password'}), 401
-                flash('Invalid username or password', 'error')
-        except Exception as e:
-            if request.is_json:
-                return jsonify({'success': False, 'message': str(e)}), 500
-            flash(f'Database error: {str(e)}', 'error')
-            
-    return render_template('login.html')
+    # React sends JSON
+    data = request.json or {}
+    username = data.get('username')
+    password = data.get('password')
 
-@app.route('/register', methods=['GET', 'POST'])
+    try:
+        if users_collection is None:
+            return jsonify({'success': False, 'message': 'Database connection invalid'}), 500
+
+        user = users_collection.find_one({'username': username})
+        if user and bcrypt.check_password_hash(user['password'], password):
+            session['user'] = username
+            return jsonify({'success': True, 'user': username})
+
+        return jsonify({'success': False, 'message': 'Invalid username or password'}), 401
+
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/register', methods=['POST'])
 def register():
-    if request.method == 'POST':
-        if request.is_json:
-            data = request.json
-            username = data.get('username')
-            password = data.get('password')
-            confirm_password = data.get('confirm_password')
-        else:
-            username = request.form['username']
-            password = request.form['password']
-            confirm_password = request.form['confirm_password']
+    data = request.json or {}
+    username = data.get('username')
+    password = data.get('password')
+    confirm_password = data.get('confirm_password')
+
+    if password != confirm_password:
+        return jsonify({'success': False, 'message': 'Passwords do not match'}), 400
+
+    try:
+        if users_collection is None:
+            return jsonify({'success': False, 'message': 'Database connection invalid'}), 500
+
+        if users_collection.find_one({'username': username}):
+            return jsonify({'success': False, 'message': 'Username already exists'}), 400
+
+        hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+        face_image = data.get('face_image')  # Local storage or DB string
         
-        if password != confirm_password:
-            if request.is_json:
-                return jsonify({'success': False, 'message': 'Passwords do not match'}), 400
-            flash('Passwords do not match', 'error')
-            return redirect(url_for('register'))
-            
-        try:
-            if users_collection.find_one({'username': username}):
-                if request.is_json:
-                    return jsonify({'success': False, 'message': 'Username already exists'}), 400
-                flash('Username already exists', 'error')
-                return redirect(url_for('register'))
-                
-            hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-            users_collection.insert_one({'username': username, 'password': hashed_password})
-            
-            if request.is_json:
-                return jsonify({'success': True, 'message': 'Account created'})
-            flash('Account created successfully! Please login.', 'success')
-            return redirect(url_for('login'))
-        except Exception as e:
-             if request.is_json:
-                return jsonify({'success': False, 'message': str(e)}), 500
-             flash(f'Database error: {str(e)}', 'error')
-             
-    return render_template('register.html')
+        users_collection.insert_one({
+            'username': username, 
+            'password': hashed_password,
+            'face_image': face_image
+        })
+
+        return jsonify({'success': True, 'message': 'Account created'})
+
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/logout')
 def logout():
     session.pop('user', None)
-    if request.headers.get('Accept') == 'application/json':
-        return jsonify({'success': True})
-    flash('Logged out successfully.', 'success')
-    return redirect(url_for('login'))
-
-@app.route('/dashboard')
-def dashboard():
-    if 'user' not in session:
-        flash('Please login to access the dashboard', 'warning')
-        return redirect(url_for('login'))
-    return render_template('dashboard.html')
+    return jsonify({'success': True})
 
 @app.route('/predict', methods=['POST'])
 def predict():
+    """
+    Optional: This is kept if you later want server-side prediction.
+    Currently your React Dashboard uses face-api.js expressions, not this route.
+    """
     if 'user' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
-        
+
     try:
-        data = request.json['image']
+        data = (request.json or {}).get('image')
+        if not data:
+            return jsonify({'emotion': 'Neutral'})
+
         header, encoded = data.split(",", 1)
         nparr = np.frombuffer(base64.b64decode(encoded), np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
+
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
+
         emotion = "Neutral"
-        
+
         if model:
             faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
-            # Default to Neutral if no face found but model exists
-            emotion = "Neutral" 
+            emotion = "Neutral"
             for (x, y, w, h) in faces:
                 roi_gray = gray[y:y + h, x:x + w]
                 cropped_img = np.expand_dims(np.expand_dims(cv2.resize(roi_gray, (48, 48)), -1), 0)
@@ -282,62 +247,25 @@ def predict():
                 emotion = emotion_dict[max_index]
                 break
         else:
-            # DEMO MODE: Randomize emotion to show UI functionality
-            # Since TensorFlow failed to install, we simulate detection
             import random
-            # Higher chance of non-neutral emotions for demo
             emotions_pool = ["Happy", "Sad", "Angry", "Surprised", "Fearful", "Disgusted", "Neutral"]
             emotion = random.choice(emotions_pool)
-            print(f"Demo Mode Prediction: {emotion}")
-            
+
         return jsonify({'emotion': emotion})
-        
+
     except Exception as e:
         print(f"Prediction error: {e}")
         return jsonify({'emotion': 'Neutral'})
 
-@app.route('/recommend', methods=['POST'])
-def recommend():
+@app.route('/coffee', methods=['POST'])
+def coffee():
     if 'user' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
-        
-    emotions = request.json.get('emotions', [])
-    if not emotions:
-        return jsonify({'error': 'No emotions provided'}), 400
-        
-    # Get dominant emotion
-    emotion_counts = Counter(emotions)
-    if emotion_counts:
-        dominant_emotion = emotion_counts.most_common(1)[0][0]
-    else:
-        dominant_emotion = "Neutral"
-        
-    # Check for local songs first
-    local_songs = []
-    songs_dir = os.path.join(app.root_path, 'static', 'songs', dominant_emotion)
-    
-    if os.path.exists(songs_dir):
-        for filename in os.listdir(songs_dir):
-            if filename.lower().endswith(('.mp3', '.wav', '.ogg')):
-                local_songs.append({
-                    'name': filename,
-                    'artist': 'Local Track',
-                    # Create full URL for frontend
-                    'link': f"{request.url_root}static/songs/{dominant_emotion}/{filename}",
-                    'track': filename,
-                    'is_local': True
-                })
 
-    if local_songs:
-        # Shuffle the local songs for random playback
-        import random
-        random.shuffle(local_songs)
-        selected_songs = local_songs # Use all local songs found (now shuffled)
-    else:
-        # Fallback to fixed YouTube playlists
-        selected_songs = FIXED_PLAYLISTS.get(dominant_emotion, FIXED_PLAYLISTS["Neutral"])
-        
-    return jsonify({'dominant_emotion': dominant_emotion, 'songs': selected_songs})
+    emotion = (request.json or {}).get('emotion', 'Neutral')
+    recs = COFFEE_RECOMMENDATIONS.get(emotion, COFFEE_RECOMMENDATIONS["Neutral"])
+    return jsonify({"emotion": emotion, "recommendations": recs})
 
 if __name__ == '__main__':
+    # Run on 5000 for backend
     app.run(debug=True, use_reloader=False, port=5000)
